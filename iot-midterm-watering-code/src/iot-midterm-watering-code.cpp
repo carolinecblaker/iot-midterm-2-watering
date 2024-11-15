@@ -125,7 +125,7 @@ void setup() {
   }
   new Thread("dustThread", readDust); // Initiate thread
   status = bme.begin(BPEADDRESS);
-   mqtt.subscribe(&subFeed);
+   
  // delay(5000);
   if (status == FALSE) {
    Serial.printf("Bme280 at address 0x%02X failed to start\n", BPEADDRESS); 
@@ -134,12 +134,12 @@ void setup() {
    }
   display.clearDisplay();
   display.display();
-  
+  mqtt.subscribe(&subFeed);
 }
 void loop() {
   dateTime = Time.timeStr();
   timeOnly= dateTime.substring(11,16);
-  Adafruit_MQTT_Subscribe *subscription;
+  
   pubValue.temp = 9*(bme.readTemperature()/5.0)+32; 
   //pressIN = bme.readPressure()/3386.39; 
   pubValue.humidity  = bme.readHumidity();
@@ -156,7 +156,7 @@ void loop() {
       Serial.printf("now watering from button");
        water_plant();
     }
-
+  Adafruit_MQTT_Subscribe *subscription;
   while ((subscription = mqtt.readSubscription(100))) {
     if (subscription == &subFeed) {
       subValue = atof((char *)subFeed.lastread);
