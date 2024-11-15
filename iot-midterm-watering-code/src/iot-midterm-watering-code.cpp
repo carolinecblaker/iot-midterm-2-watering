@@ -36,21 +36,29 @@ const int DUSTPIN=D18;
 const int RELAYPIN = D2;
 const int AQPIN = A1;
 const int OLED_RESET=-1;
-const int IDEAL_MOISTURE= 1400;
+const int IDEAL_MOISTURE= 1800;
 int counter = 0;
 int moistureSignal;
 int tempF;
 int status;
 int quality;
 int startTime;
+int ratio;
+int concentration;
 bool waterNow = 0;
+int subValue;
 unsigned int sampletime_ms = 30000;//sampe 30s ;
 String dateTime, timeOnly;
 unsigned int lastTime;
 
-unsigned int duration;
-unsigned int starttime;
+unsigned int starttime= 0;
 const int interval = 50000;//sampe 30s ;
+   const int sampleTime = 30000; 
+   unsigned int duration ;
+   int  lowpulseoccupancy =0;
+
+
+
 struct RoomData {
   int particles;
   float temp;
@@ -62,8 +70,9 @@ RoomData pubValue;
 
 SYSTEM_MODE(AUTOMATIC);
 
-// Run the application and system concurrently in separate threads
+
 SYSTEM_THREAD(ENABLED);
+
 
 AirQualitySensor sensor(AQPIN);
 Adafruit_SSD1306 display(OLED_RESET);
@@ -78,8 +87,7 @@ Adafruit_MQTT_Publish humidityFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "
 Adafruit_MQTT_Publish aqFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/plant-air-quality");
 Adafruit_MQTT_Publish particlesFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/plant-particles");
 Adafruit_MQTT_Publish tempFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/plant-temperature");
-
-
+Adafruit_MQTT_Subscribe subFeed = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/auto-water"); 
 
 void water_plant();
 bool MQTT_ping();
@@ -89,10 +97,11 @@ float readDust();
 void createFloatPayLoad(Adafruit_MQTT_Publish, float item);
 void createIntPayLoad(Adafruit_MQTT_Publish, int item);
 void createEventPayLoad(float particles, float temp, int moisture, int quality, int humidity );
-// setup() runs once, when the device is first turned on
+
 void setup() {
   // Begins quietly.
   Serial.begin(9600);
+  
   Time.zone(-7);
   Particle.syncTime();
   pinMode(RELAYPIN,OUTPUT);
@@ -109,13 +118,14 @@ void setup() {
         Serial.println("Sensor ERROR!");
     } 
   for (counter =0;counter < 2; counter++){
-    // digitalWrite(RELAYPIN, HIGH);
-    // delay(20);
-    // digitalWrite(RELAYPIN,LOW);
-    // delay(1000);
+    digitalWrite(RELAYPIN, HIGH);
+    delay(20);
+    digitalWrite(RELAYPIN,LOW);
+    delay(1000);
   }
-  
+  new Thread("dustThread", readDust); // Initiate thread
   status = bme.begin(BPEADDRESS);
+   mqtt.subscribe(&subFeed);
  // delay(5000);
   if (status == FALSE) {
    Serial.printf("Bme280 at address 0x%02X failed to start\n", BPEADDRESS); 
@@ -129,28 +139,48 @@ void setup() {
 void loop() {
   dateTime = Time.timeStr();
   timeOnly= dateTime.substring(11,16);
+  Adafruit_MQTT_Subscribe *subscription;
   pubValue.temp = 9*(bme.readTemperature()/5.0)+32; 
   //pressIN = bme.readPressure()/3386.39; 
   pubValue.humidity  = bme.readHumidity();
 
   pubValue.moisture= analogRead(SOILPIN);
-  pubValue.particles = readDust();
+  pubValue.particles = concentration;
   pubValue.quality = sensor.getValue();
+  if (pubValue.moisture > IDEAL_MOISTURE){
+      Serial.printf("now watering from too dry\n");
+      waterNow=1;
+  
+    } 
+  if (subValue == 1){
+      Serial.printf("now watering from button");
+       water_plant();
+    }
 
+  while ((subscription = mqtt.readSubscription(100))) {
+    if (subscription == &subFeed) {
+      subValue = atof((char *)subFeed.lastread);
+    }
+    if (subValue == 1){
+      Serial.printf("now watering from button\n");
+      waterNow=!waterNow;
+    }
+  }
   // ONCE A Something:
    if ((millis()-starttime) > interval)
     {
     MQTT_connect();
     MQTT_ping();
-    //Serial.printf("Sensor value: %i\n",sensor.getValue());
-    //Serial.printf("The value: %i\n",RoomData.moisture);
+    Serial.printf("Sensor value: %i\n",sensor.getValue());
+    Serial.printf("The value: %i\n",pubValue.moisture);
     display.clearDisplay();  
     display.setTextSize(2);
     display.setTextColor(WHITE);
     display.setCursor(0,7);
     display.printf("Mstr: %i\n",pubValue.moisture);
     display.setCursor(0,22);
-    display.printf("Sensor: %i\n",pubValue.quality);
+    if (waterNow) {display.printf("water");}
+    //display.printf("Sensor: %i\n",pubValue.quality);
     display.setCursor(0,36);
     display.printf(" %s\n",timeOnly.c_str());
     display.display();
@@ -160,13 +190,13 @@ void loop() {
      publishRoomData();
       
     }
-    
-    starttime = millis();
-   if (waterNow){
+     if (waterNow){
     water_plant();
    }
+    starttime = millis();
+  
 
-    }
+  }
 }
 void water_plant(){
   waterNow = 0;
@@ -261,21 +291,14 @@ void createEventPayLoad(float particles, float temp, int moisture, int quality, 
    pubFeed.publish(jw.getBuffer());
 }
 float readDust() {
-    duration = pulseIn(DUSTPIN, LOW);
-    int lowpulseoccupancy = 0;
-    lowpulseoccupancy = lowpulseoccupancy+duration;
-    float concentration;
-    if ((millis()-starttime) > sampletime_ms)//if the sampel time == 30s
-    {
-      float  ratio = lowpulseoccupancy/(sampletime_ms*10.0);  // Integer percentage 0=>100
-      concentration = 1.1*pow(ratio,3)-3.8*pow(ratio,2)+520*ratio+0.62; // using spec sheet curve
-        Serial.print(lowpulseoccupancy);
-        Serial.print(",");
-        Serial.print(ratio);
-        Serial.print(",");
-        Serial.println(concentration);
-        lowpulseoccupancy = 0;
-        starttime = millis();
-    }
-    return concentration;
+
+   while(true) {
+// Run the below loop forever
+    duration = pulseIn(DUSTPIN , LOW); lowpulseoccupancy = lowpulseoccupancy+duration; if ((millis()-startTime) > sampleTime) {
+    ratio = lowpulseoccupancy/(sampleTime*10.0);
+    concentration = 1.1*pow(ratio,3)-3.8*pow(ratio,2)+520*ratio+0.62; startTime = millis();
+    lowpulseoccupancy =0;
+    Serial.printf("concentration: %0.2f\n",  concentration);
+  } 
+  }
 }
