@@ -44,23 +44,16 @@ int status;
 int quality;
 int startTime;
 int ratio;
-int concentration;
+float concentration;
 bool waterNow = 0;
 int subValue;
 unsigned int sampletime_ms = 30000;//sampe 30s ;
 String dateTime, timeOnly;
 unsigned int lastTime;
-
-unsigned int starttime= 0;
 const int interval = 50000;//sampe 30s ;
-   const int sampleTime = 30000; 
-   unsigned int duration ;
-   int  lowpulseoccupancy =0;
-
-
 
 struct RoomData {
-  int particles;
+  float particles;
   float temp;
   int moisture;
   int quality;
@@ -101,7 +94,7 @@ void createEventPayLoad(float particles, float temp, int moisture, int quality, 
 void setup() {
   // Begins quietly.
   Serial.begin(9600);
-  
+  waitFor(Serial.isConnected,15000);
   Time.zone(-7);
   Particle.syncTime();
   pinMode(RELAYPIN,OUTPUT);
@@ -111,7 +104,7 @@ void setup() {
   startTime = millis();//get the current time;
   // Is this necessary
   digitalWrite(RELAYPIN,LOW);
-  waitFor(Serial.isConnected,15000);
+ 
       if (sensor.init()) {
         Serial.println("Sensor ready.");
     } else {
@@ -141,7 +134,7 @@ void loop() {
   timeOnly= dateTime.substring(11,16);
   
   pubValue.temp = 9*(bme.readTemperature()/5.0)+32; 
-  //pressIN = bme.readPressure()/3386.39; 
+
   pubValue.humidity  = bme.readHumidity();
 
   pubValue.moisture= analogRead(SOILPIN);
@@ -167,7 +160,7 @@ void loop() {
     }
   }
   // ONCE A Something:
-   if ((millis()-starttime) > interval)
+   if ((millis()-startTime) > interval)
     {
     MQTT_connect();
     MQTT_ping();
@@ -190,13 +183,11 @@ void loop() {
      publishRoomData();
       
     }
-     if (waterNow){
-    water_plant();
-   }
-    starttime = millis();
-  
-
-  }
+    if (waterNow){
+      water_plant();
+    }
+      startTime = millis();
+    }
 }
 void water_plant(){
   waterNow = 0;
@@ -239,7 +230,7 @@ void MQTT_connect() {
   Serial.printf("MQTT Connected!\n");
 }
 void publishRoomData(){
-Serial.printf("Publishing Room data \n"); 
+  Serial.printf("Publishing Room data \n"); 
 
   createIntPayLoad(humidityFeed,pubValue.humidity);
   delay(1000);
@@ -273,13 +264,11 @@ void createIntPayLoad(Adafruit_MQTT_Publish feed, int item){
    feed.publish(jw.getBuffer());
 }
 
-
-
 void createEventPayLoad(float particles, float temp, int moisture, int quality, int humidity ) {
      JsonWriterStatic <256> jw;
       {
       JsonWriterAutoObject obj(&jw);
-      Serial.printf("object: pubData.particles %i, %f, %i, %i, %i\n",particles,temp,moisture,quality,humidity);
+      Serial.printf("object: pubData.particles %0.2f, %f, %i, %i, %i\n",particles,temp,moisture,quality,humidity);
       jw.insertKeyValue("particles", particles);
       jw.insertKeyValue("temp", temp);
       jw.insertKeyValue("moisture", moisture);
@@ -291,14 +280,21 @@ void createEventPayLoad(float particles, float temp, int moisture, int quality, 
    pubFeed.publish(jw.getBuffer());
 }
 float readDust() {
+  unsigned int _starttime= 0;
 
+  const int sampleTime = 30000; 
+  unsigned int _duration ;
+  int  lowpulseoccupancy =0;
    while(true) {
 // Run the below loop forever
-    duration = pulseIn(DUSTPIN , LOW); lowpulseoccupancy = lowpulseoccupancy+duration; if ((millis()-startTime) > sampleTime) {
-    ratio = lowpulseoccupancy/(sampleTime*10.0);
-    concentration = 1.1*pow(ratio,3)-3.8*pow(ratio,2)+520*ratio+0.62; startTime = millis();
-    lowpulseoccupancy =0;
-    Serial.printf("concentration: %0.2f\n",  concentration);
-  } 
+    _duration = pulseIn(DUSTPIN , LOW); 
+    lowpulseoccupancy = lowpulseoccupancy+_duration; 
+    if ((millis()-_starttime) > sampleTime) {
+      ratio = lowpulseoccupancy/(sampleTime*10.0);
+      concentration = 1.1*pow(ratio,3)-3.8*pow(ratio,2)+520*ratio+0.62; 
+      _starttime = millis();
+      lowpulseoccupancy =0;
+      Serial.printf("concentration: %0.2f\n",  concentration);
+    } 
   }
 }
