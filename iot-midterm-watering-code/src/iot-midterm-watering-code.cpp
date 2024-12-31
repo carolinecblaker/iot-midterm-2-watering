@@ -320,7 +320,7 @@ float readDust() {
       concentration = 1.1*pow(ratio,3)-3.8*pow(ratio,2)+520*ratio+0.62; 
       _starttime = millis();
       lowpulseoccupancy =0;
-      Serial.printf("concentration: %0.2f\n",  concentration);
+    //  Serial.printf("concentration: %0.2f\n",  concentration);
     } 
   }
 }
