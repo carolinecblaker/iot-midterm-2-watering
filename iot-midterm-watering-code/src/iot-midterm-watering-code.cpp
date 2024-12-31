@@ -51,6 +51,8 @@ unsigned int sampletime_ms = 30000;//sampe 30s ;
 String dateTime, timeOnly;
 unsigned int lastTime;
 const int interval = 50000;//sampe 30s ;
+int reason;
+int lastWater=0;
 
 struct RoomData {
   float particles;
@@ -90,6 +92,7 @@ float readDust();
 void createFloatPayLoad(Adafruit_MQTT_Publish, float item);
 void createIntPayLoad(Adafruit_MQTT_Publish, int item);
 void createEventPayLoad(float particles, float temp, int moisture, int quality, int humidity );
+void createWateringPayLoad(int reason );
 
 void setup() {
   // Begins quietly.
@@ -122,9 +125,9 @@ void setup() {
  // delay(5000);
   if (status == FALSE) {
    Serial.printf("Bme280 at address 0x%02X failed to start\n", BPEADDRESS); 
-   } else {
-    Serial.printf("Bme280 at address 0x%02X online\n", BPEADDRESS);
-   }
+  } else {
+   Serial.printf("Bme280 at address 0x%02X online\n", BPEADDRESS);
+  }
   display.clearDisplay();
   display.display();
   mqtt.subscribe(&subFeed);
@@ -141,14 +144,17 @@ void loop() {
   pubValue.particles = concentration;
   pubValue.quality = sensor.getValue();
   if (pubValue.moisture > IDEAL_MOISTURE){
+      if (lastWater-millis()> 10000){
       Serial.printf("now watering from too dry\n");
       waterNow=1;
+      lastWater=millis();
+      if(mqtt.Update()) {
   
+        createWateringPayLoad(1 );
+      
+      }
+      } 
     } 
-  if (subValue == 1){
-      Serial.printf("now watering from button");
-       water_plant();
-    }
   Adafruit_MQTT_Subscribe *subscription;
   while ((subscription = mqtt.readSubscription(100))) {
     if (subscription == &subFeed) {
@@ -157,6 +163,12 @@ void loop() {
     if (subValue == 1){
       Serial.printf("now watering from button\n");
       waterNow=!waterNow;
+      if(mqtt.Update()) {
+  
+        createWateringPayLoad(2 );
+      
+      }
+      
     }
   }
   // ONCE A Something:
@@ -164,8 +176,8 @@ void loop() {
     {
     MQTT_connect();
     MQTT_ping();
-    Serial.printf("Sensor value: %i\n",sensor.getValue());
-    Serial.printf("The value: %i\n",pubValue.moisture);
+  //  Serial.printf("Sensor value: %i\n",sensor.getValue());
+  //  Serial.printf("The value: %i\n",pubValue.moisture);
     display.clearDisplay();  
     display.setTextSize(2);
     display.setTextColor(WHITE);
@@ -190,7 +202,7 @@ void loop() {
     }
 }
 void water_plant(){
-  waterNow = 0;
+  waterNow = !waterNow;
   digitalWrite(RELAYPIN, HIGH);
   delay(600);
   digitalWrite(RELAYPIN,LOW);
@@ -201,10 +213,10 @@ bool MQTT_ping() {
   bool pingStatus;
 
   if ((millis()-last)>120000) {
-      Serial.printf("Pinging MQTT \n");
+    //  Serial.printf("Pinging MQTT \n");
       pingStatus = mqtt.ping();
       if(!pingStatus) {
-        Serial.printf("Disconnecting \n");
+     //   Serial.printf("Disconnecting \n");
         mqtt.disconnect();
       }
       last = millis();
@@ -230,7 +242,7 @@ void MQTT_connect() {
   Serial.printf("MQTT Connected!\n");
 }
 void publishRoomData(){
-  Serial.printf("Publishing Room data \n"); 
+ // Serial.printf("Publishing Room data \n"); 
 
   createIntPayLoad(humidityFeed,pubValue.humidity);
   delay(1000);
@@ -274,6 +286,20 @@ void createEventPayLoad(float particles, float temp, int moisture, int quality, 
       jw.insertKeyValue("moisture", moisture);
       jw.insertKeyValue("quality", quality);
       jw.insertKeyValue("humidity", humidity);
+     // jw.insertKeyValue("lon", lon);
+      //jw.insertKeyValue("lat", lat);
+      }
+   pubFeed.publish(jw.getBuffer());
+}
+void createWateringPayLoad(int reason ) {
+     JsonWriterStatic <256> jw;
+      {
+      JsonWriterAutoObject obj(&jw);
+     // Serial.printf("object: pubData.particles %0.2f, %f, %i, %i, %i\n",particles,temp,moisture,quality,humidity);
+      if (reason ==1){jw.insertKeyValue("Reason for watering","too dry");}
+
+      if (reason ==2){jw.insertKeyValue("Reason for watering","button");}
+     
      // jw.insertKeyValue("lon", lon);
       //jw.insertKeyValue("lat", lat);
       }
